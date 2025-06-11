@@ -127,6 +127,38 @@ app.post('/api/verify-code', async (req, res) => {
   }
 });
 
+// 🔹 Delete Account Route
+app.delete('/api/delete-account', async (req, res) => {
+  const { email } = req.body;
+
+  if (!email) {
+    return res.status(400).json({ message: 'Email is required for account deletion.' });
+  }
+
+  try {
+    // Fetch user
+    const query = {
+      query: 'SELECT * FROM c WHERE c.email = @e',
+      parameters: [{ name: '@e', value: email }]
+    };
+
+    const { resources } = await container.items.query(query).fetchAll();
+
+    if (resources.length === 0) {
+      return res.status(404).json({ message: 'User not found.' });
+    }
+
+    const user = resources[0];
+
+    // Delete user from Cosmos DB
+    await container.item(user.id, user.id).delete();
+
+    res.status(200).json({ message: 'Account deleted successfully.' });
+  } catch (err) {
+    console.error('Deletion error:', err.message);
+    res.status(500).json({ message: 'Error deleting account', error: err.message });
+  }
+});
 
 
 // 🔹 Start server
