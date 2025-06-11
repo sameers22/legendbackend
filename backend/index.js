@@ -161,6 +161,40 @@ app.delete('/api/delete-account', async (req, res) => {
   }
 });
 
+// 🔹 Update User Route
+app.put('/api/update-user', async (req, res) => {
+  const { email, name, phone, birthday } = req.body;
+
+  if (!email) {
+    return res.status(400).json({ message: 'Email is required to update user data.' });
+  }
+
+  try {
+    const query = {
+      query: 'SELECT * FROM c WHERE c.email = @e',
+      parameters: [{ name: '@e', value: email }]
+    };
+
+    const { resources } = await container.items.query(query).fetchAll();
+    const user = resources[0];
+
+    if (!user) {
+      return res.status(404).json({ message: 'User not found.' });
+    }
+
+    if (name) user.name = name;
+    if (phone) user.phone = phone;
+    if (birthday) user.birthday = birthday;
+
+    await container.item(user.id, user.id).replace(user);
+
+    res.status(200).json({ message: 'User updated successfully.', user });
+  } catch (err) {
+    console.error('Update error:', err.message);
+    res.status(500).json({ message: 'Error updating user', error: err.message });
+  }
+});
+
 
 // 🔹 Start server
 const PORT = process.env.PORT || 3001;
