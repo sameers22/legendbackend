@@ -15,12 +15,12 @@ app.get('/api/test', (req, res) => {
   res.status(200).send("Server is working!");
 });
 
-// 🔹 Register route
+// 🔹 Register route (✅ phone & birthday optional)
 app.post('/api/register', async (req, res) => {
   const { name, email, phone, birthday, password } = req.body;
 
-  if (!email || !password || !name || !phone || !birthday) {
-    return res.status(400).json({ message: "All fields are required" });
+  if (!email || !password || !name) {
+    return res.status(400).json({ message: "Name, email, and password are required." });
   }
 
   try {
@@ -35,26 +35,27 @@ app.post('/api/register', async (req, res) => {
       return res.status(409).json({ message: 'User already exists with this email.' });
     }
 
-    // Generate 6-digit code
+    // Generate 6-digit verification code
     const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
 
+    // Create new user object
     const newUser = {
       id: email,
       name,
       email,
-      phone,
-      birthday,
       password,
       verified: false,
       verificationCode,
-      verificationExpires: Date.now() + 10 * 60 * 1000 // valid for 10 mins
+      verificationExpires: Date.now() + 10 * 60 * 1000 // 10 mins
     };
+
+    if (phone) newUser.phone = phone;
+    if (birthday) newUser.birthday = birthday;
 
     await container.items.create(newUser);
     await sendVerificationCode(email, verificationCode);
 
     res.status(201).json({ message: 'User registered. Check your email for the verification code.' });
-
   } catch (error) {
     console.error("Registration error:", error);
     res.status(500).json({ message: 'Error registering user', error: error.message });
