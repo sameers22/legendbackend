@@ -226,7 +226,6 @@ app.post('/api/forgot-password', async (req, res) => {
   }
 });
 
-// 🔹 Reset Password: apply new password
 app.post('/api/reset-password', async (req, res) => {
   const { email, code, newPassword } = req.body;
 
@@ -245,6 +244,13 @@ app.post('/api/reset-password', async (req, res) => {
 
     if (!user || user.resetCode !== code || user.resetExpires < Date.now()) {
       return res.status(400).json({ message: 'Invalid or expired reset code.' });
+    }
+
+    // ✅ Compare new password with old password
+    if (user.password === newPassword) {
+      return res.status(400).json({
+        message: 'New password cannot be the same as the old password.',
+      });
     }
 
     user.password = newPassword;
