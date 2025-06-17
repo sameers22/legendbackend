@@ -195,6 +195,71 @@ app.put('/api/update-user', async (req, res) => {
   }
 });
 
+// 🔹 Forgot Password: send reset code
+app.post('/api/forgot-password', async (req, res) => {
+  const { email } = req.body;
+
+  if (!email) return res.status(400).json({ message: 'Email is required.' });
+
+  try {
+    const query = {
+      query: 'SELECT * FROM c WHERE c.email = @e',
+      parameters: [{ name: '@e', value: email }]
+    };
+
+    const { resources } = await container.items.query(query).fetchAll();
+    const user = resources[0];
+
+    if (!user) return res.status(404).json({ message: 'User not found.' });
+
+    const resetCode = Math.floor(100000 + Math.random() * 900000).toString();
+    user.resetCode = resetCode;
+    user.resetExpires = Date.now() + 10 * 60 * 1000; // 10 mins
+
+    await container.item(user.id, user.id).replace(user);
+    await sendVerificationCode(email, resetCode); // You can reuse the same function
+
+    res.status(200).json({ message: 'Reset code sent to email.' });
+  } catch (err) {
+    console.error('Forgot password error:', err.message);
+    res.status(500).json({ message: 'Failed to send reset code.' });
+  }
+});
+
+// 🔹 Reset Password: apply new password
+app.post('/api/reset-password', async (req, res) => {
+  const { email, code, newPassword } = req.body;
+
+  if (!email || !code || !newPassword) {
+    return res.status(400).json({ message: 'All fields are required.' });
+  }
+
+  try {
+    const query = {
+      query: 'SELECT * FROM c WHERE c.email = @e',
+      parameters: [{ name: '@e', value: email }]
+    };
+
+    const { resources } = await container.items.query(query).fetchAll();
+    const user = resources[0];
+
+    if (!user || user.resetCode !== code || user.resetExpires < Date.now()) {
+      return res.status(400).json({ message: 'Invalid or expired reset code.' });
+    }
+
+    user.password = newPassword;
+    delete user.resetCode;
+    delete user.resetExpires;
+
+    await container.item(user.id, user.id).replace(user);
+    res.status(200).json({ message: 'Password reset successfully.' });
+  } catch (err) {
+    console.error('Reset password error:', err.message);
+    res.status(500).json({ message: 'Failed to reset password.' });
+  }
+});
+
+
 
 // 🔹 Start server
 const PORT = process.env.PORT || 3001;
