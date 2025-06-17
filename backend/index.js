@@ -2,20 +2,23 @@ const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
 const crypto = require('crypto');
+const bcrypt = require('bcrypt'); // ✅ for password hashing
 const container = require('./cosmos');
-const sendVerificationCode = require('./sendVerificationCode'); // ✅ updated to use code instead of link
+const sendVerificationCode = require('./sendVerificationCode');
 require('dotenv').config();
 
 const app = express();
 app.use(cors());
 app.use(bodyParser.json());
 
+const SALT_ROUNDS = 10;
+
 // 🔹 Test route
 app.get('/api/test', (req, res) => {
   res.status(200).send("Server is working!");
 });
 
-// 🔹 Register route (✅ phone & birthday optional)
+// 🔹 Register route
 app.post('/api/register', async (req, res) => {
   const { name, email, phone, birthday, password } = req.body;
 
@@ -24,7 +27,6 @@ app.post('/api/register', async (req, res) => {
   }
 
   try {
-    // Check if user exists
     const existingUserQuery = {
       query: 'SELECT * FROM c WHERE c.email = @email',
       parameters: [{ name: '@email', value: email }]
@@ -35,18 +37,17 @@ app.post('/api/register', async (req, res) => {
       return res.status(409).json({ message: 'User already exists with this email.' });
     }
 
-    // Generate 6-digit verification code
+    const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS);
     const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
 
-    // Create new user object
     const newUser = {
       id: email,
       name,
       email,
-      password,
+      password: hashedPassword,
       verified: false,
       verificationCode,
-      verificationExpires: Date.now() + 10 * 60 * 1000 // 10 mins
+      verificationExpires: Date.now() + 10 * 60 * 1000
     };
 
     if (phone) newUser.phone = phone;
@@ -71,27 +72,24 @@ app.post('/api/login', async (req, res) => {
   }
 
   try {
-    const querySpec = {
-      query: "SELECT * FROM c WHERE c.email = @email AND c.password = @password",
-      parameters: [
-        { name: '@email', value: email },
-        { name: '@password', value: password }
-      ]
+    const query = {
+      query: 'SELECT * FROM c WHERE c.email = @e',
+      parameters: [{ name: '@e', value: email }]
     };
 
-    const { resources } = await container.items.query(querySpec).fetchAll();
+    const { resources } = await container.items.query(query).fetchAll();
     const user = resources[0];
 
-    if (!user) {
-      return res.status(401).json({ message: 'Invalid credentials' });
-    }
+    if (!user) return res.status(401).json({ message: 'Invalid credentials' });
+
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) return res.status(401).json({ message: 'Invalid credentials' });
 
     if (!user.verified) {
       return res.status(403).json({ message: 'Please verify your email before logging in.' });
     }
 
     res.status(200).json({ message: 'Login successful', user });
-
   } catch (error) {
     console.error("Login error:", error);
     res.status(500).json({ message: 'Login error', error: error.message });
@@ -128,74 +126,7 @@ app.post('/api/verify-code', async (req, res) => {
   }
 });
 
-// 🔹 Delete Account Route
-app.delete('/api/delete-account', async (req, res) => {
-  const { email } = req.body;
-
-  if (!email) {
-    return res.status(400).json({ message: 'Email is required for account deletion.' });
-  }
-
-  try {
-    // Fetch user
-    const query = {
-      query: 'SELECT * FROM c WHERE c.email = @e',
-      parameters: [{ name: '@e', value: email }]
-    };
-
-    const { resources } = await container.items.query(query).fetchAll();
-
-    if (resources.length === 0) {
-      return res.status(404).json({ message: 'User not found.' });
-    }
-
-    const user = resources[0];
-
-    // Delete user from Cosmos DB
-    await container.item(user.id, user.id).delete();
-
-    res.status(200).json({ message: 'Account deleted successfully.' });
-  } catch (err) {
-    console.error('Deletion error:', err.message);
-    res.status(500).json({ message: 'Error deleting account', error: err.message });
-  }
-});
-
-// 🔹 Update User Route
-app.put('/api/update-user', async (req, res) => {
-  const { email, name, phone, birthday } = req.body;
-
-  if (!email) {
-    return res.status(400).json({ message: 'Email is required to update user data.' });
-  }
-
-  try {
-    const query = {
-      query: 'SELECT * FROM c WHERE c.email = @e',
-      parameters: [{ name: '@e', value: email }]
-    };
-
-    const { resources } = await container.items.query(query).fetchAll();
-    const user = resources[0];
-
-    if (!user) {
-      return res.status(404).json({ message: 'User not found.' });
-    }
-
-    if (name) user.name = name;
-    if (phone) user.phone = phone;
-    if (birthday) user.birthday = birthday;
-
-    await container.item(user.id, user.id).replace(user);
-
-    res.status(200).json({ message: 'User updated successfully.', user });
-  } catch (err) {
-    console.error('Update error:', err.message);
-    res.status(500).json({ message: 'Error updating user', error: err.message });
-  }
-});
-
-// 🔹 Forgot Password: send reset code
+// 🔹 Forgot Password
 app.post('/api/forgot-password', async (req, res) => {
   const { email } = req.body;
 
@@ -214,10 +145,10 @@ app.post('/api/forgot-password', async (req, res) => {
 
     const resetCode = Math.floor(100000 + Math.random() * 900000).toString();
     user.resetCode = resetCode;
-    user.resetExpires = Date.now() + 10 * 60 * 1000; // 10 mins
+    user.resetExpires = Date.now() + 10 * 60 * 1000;
 
     await container.item(user.id, user.id).replace(user);
-    await sendVerificationCode(email, resetCode); // You can reuse the same function
+    await sendVerificationCode(email, resetCode);
 
     res.status(200).json({ message: 'Reset code sent to email.' });
   } catch (err) {
@@ -226,6 +157,7 @@ app.post('/api/forgot-password', async (req, res) => {
   }
 });
 
+// 🔹 Reset Password
 app.post('/api/reset-password', async (req, res) => {
   const { email, code, newPassword } = req.body;
 
@@ -246,14 +178,13 @@ app.post('/api/reset-password', async (req, res) => {
       return res.status(400).json({ message: 'Invalid or expired reset code.' });
     }
 
-    // ✅ Compare new password with old password
-    if (user.password === newPassword) {
-      return res.status(400).json({
-        message: 'New password cannot be the same as the old password.',
-      });
+    const samePassword = await bcrypt.compare(newPassword, user.password);
+    if (samePassword) {
+      return res.status(400).json({ message: 'New password cannot be the same as the old password.' });
     }
 
-    user.password = newPassword;
+    const hashedNewPassword = await bcrypt.hash(newPassword, SALT_ROUNDS);
+    user.password = hashedNewPassword;
     delete user.resetCode;
     delete user.resetExpires;
 
@@ -265,7 +196,56 @@ app.post('/api/reset-password', async (req, res) => {
   }
 });
 
+// 🔹 Delete Account
+app.delete('/api/delete-account', async (req, res) => {
+  const { email } = req.body;
 
+  if (!email) return res.status(400).json({ message: 'Email is required.' });
+
+  try {
+    const query = {
+      query: 'SELECT * FROM c WHERE c.email = @e',
+      parameters: [{ name: '@e', value: email }]
+    };
+    const { resources } = await container.items.query(query).fetchAll();
+    const user = resources[0];
+
+    if (!user) return res.status(404).json({ message: 'User not found.' });
+
+    await container.item(user.id, user.id).delete();
+    res.status(200).json({ message: 'Account deleted successfully.' });
+  } catch (err) {
+    res.status(500).json({ message: 'Error deleting account', error: err.message });
+  }
+});
+
+// 🔹 Update User
+app.put('/api/update-user', async (req, res) => {
+  const { email, name, phone, birthday } = req.body;
+
+  if (!email) return res.status(400).json({ message: 'Email is required to update user data.' });
+
+  try {
+    const query = {
+      query: 'SELECT * FROM c WHERE c.email = @e',
+      parameters: [{ name: '@e', value: email }]
+    };
+
+    const { resources } = await container.items.query(query).fetchAll();
+    const user = resources[0];
+
+    if (!user) return res.status(404).json({ message: 'User not found.' });
+
+    if (name) user.name = name;
+    if (phone) user.phone = phone;
+    if (birthday) user.birthday = birthday;
+
+    await container.item(user.id, user.id).replace(user);
+    res.status(200).json({ message: 'User updated successfully.', user });
+  } catch (err) {
+    res.status(500).json({ message: 'Error updating user', error: err.message });
+  }
+});
 
 // 🔹 Start server
 const PORT = process.env.PORT || 3001;
