@@ -5,6 +5,7 @@ const crypto = require('crypto');
 const bcrypt = require('bcrypt'); // ✅ for password hashing
 const container = require('./cosmos');
 const sendVerificationCode = require('./sendVerificationCode');
+const { createCustomContainer } = require('./custom-cosmos');
 require('dotenv').config();
 
 const app = express();
@@ -244,6 +245,24 @@ app.put('/api/update-user', async (req, res) => {
     res.status(200).json({ message: 'User updated successfully.', user });
   } catch (err) {
     res.status(500).json({ message: 'Error updating user', error: err.message });
+  }
+});
+
+app.post("/api/custom-data", async (req, res) => {
+  const { endpoint, key, databaseId, containerId } = req.body;
+
+  if (!endpoint || !key || !databaseId || !containerId) {
+    return res.status(400).json({ error: "Missing required fields." });
+  }
+
+  try {
+    const container = createCustomContainer({ endpoint, key, databaseId, containerId });
+    const { resources } = await container.items.query("SELECT * FROM c").fetchAll();
+
+    res.json({ data: resources });
+  } catch (err) {
+    console.error("Custom DB fetch failed:", err.message);
+    res.status(500).json({ error: "Could not fetch from provided Cosmos DB." });
   }
 });
 
