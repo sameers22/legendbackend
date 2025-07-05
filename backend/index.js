@@ -217,11 +217,13 @@ app.put('/api/update-user', async (req, res) => {
 });
 
 // ========== QR PROJECT ROUTES ==========
-
-// ✅ Save Project
+// ✅ Save Project (with qrImage)
 app.post('/api/save-project', async (req, res) => {
-  const { name, text, time } = req.body;
-  if (!name || !text || !time) return res.status(400).json({ message: 'Missing fields' });
+  const { name, text, time, qrImage } = req.body;
+
+  if (!name || !text || !time) {
+    return res.status(400).json({ message: 'Missing required fields' });
+  }
 
   try {
     const newItem = {
@@ -230,14 +232,18 @@ app.post('/api/save-project', async (req, res) => {
       text,
       time,
       scanCount: 0,
+      qrImage, // ✅ now included
       type: 'qr_project',
     };
-    const { resource } = await qrContainer.items.create(newItem); // 🔁 updated
+
+    const { resource } = await qrContainer.items.create(newItem);
     res.status(201).json({ message: 'Project saved', project: resource });
   } catch (err) {
+    console.error('❌ Save Project Error:', err.message);
     res.status(500).json({ message: 'Save failed.', error: err.message });
   }
 });
+
 
 // ✅ Get All Projects
 app.get('/api/get-projects', async (req, res) => {
