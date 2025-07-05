@@ -22,6 +22,15 @@ const client = new CosmosClient({
 const db = client.database(process.env.COSMOS_DB_DATABASE);
 const container = db.container(process.env.COSMOS_DB_CONTAINER);
 
+// 🔹 QR Project-specific Cosmos DB container
+const qrClient = new CosmosClient({
+  endpoint: process.env.COSMOS_DB_ENDPOINT,
+  key: process.env.COSMOS_DB_KEY,
+});
+const qrDb = qrClient.database(process.env.COSMOS_DB_DATABASE2);
+const qrContainer = qrDb.container(process.env.COSMOS_DB_CONTAINER2);
+
+
 // ✅ Health Check
 app.get('/api/health', (req, res) => {
   res.status(200).json({ status: 'ok', time: new Date().toISOString() });
@@ -223,7 +232,7 @@ app.post('/api/save-project', async (req, res) => {
       scanCount: 0,
       type: 'qr_project',
     };
-    const { resource } = await container.items.create(newItem);
+    const { resource } = await qrContainer.items.create(newItem); // 🔁 updated
     res.status(201).json({ message: 'Project saved', project: resource });
   } catch (err) {
     res.status(500).json({ message: 'Save failed.', error: err.message });
@@ -237,7 +246,7 @@ app.get('/api/get-projects', async (req, res) => {
       query: 'SELECT * FROM c WHERE c.type = @type ORDER BY c._ts DESC',
       parameters: [{ name: '@type', value: 'qr_project' }]
     };
-    const { resources } = await container.items.query(query).fetchAll();
+    const { resources } = await qrContainer.items.query(query).fetchAll(); // 🔁 updated
     res.status(200).json({ projects: resources });
   } catch (err) {
     res.status(500).json({ message: 'Fetch failed.', error: err.message });
@@ -248,7 +257,7 @@ app.get('/api/get-projects', async (req, res) => {
 app.get('/api/get-project/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const { resource } = await container.item(id, id).read();
+    const { resource } = await qrContainer.item(id, id).read(); // 🔁 updated
     res.status(200).json({ project: resource });
   } catch (err) {
     res.status(404).json({ message: 'Project not found' });
@@ -261,14 +270,14 @@ app.put('/api/update-project/:id', async (req, res) => {
   const { name, text } = req.body;
 
   try {
-    const { resource: existing } = await container.item(id, id).read();
+    const { resource: existing } = await qrContainer.item(id, id).read(); // 🔁 updated
     const updated = {
       ...existing,
       name,
       text,
       time: new Date().toISOString(),
     };
-    const { resource } = await container.items.upsert(updated);
+    const { resource } = await qrContainer.items.upsert(updated); // 🔁 updated
     res.status(200).json({ message: 'Updated', project: resource });
   } catch (err) {
     res.status(500).json({ message: 'Update failed.', error: err.message });
@@ -279,7 +288,7 @@ app.put('/api/update-project/:id', async (req, res) => {
 app.delete('/api/delete-project/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    await container.item(id, id).delete();
+    await qrContainer.item(id, id).delete(); // 🔁 updated
     res.status(200).json({ message: 'Deleted' });
   } catch (err) {
     res.status(500).json({ message: 'Delete failed.' });
@@ -290,10 +299,10 @@ app.delete('/api/delete-project/:id', async (req, res) => {
 app.get('/track/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const { resource: project } = await container.item(id, id).read();
+    const { resource: project } = await qrContainer.item(id, id).read(); // 🔁 updated
     if (!project || !project.text) return res.status(404).send('QR not found');
     project.scanCount = (project.scanCount || 0) + 1;
-    await container.items.upsert(project);
+    await qrContainer.items.upsert(project); // 🔁 updated
     res.redirect(project.text.startsWith('http') ? project.text : `https://${project.text}`);
   } catch (err) {
     res.status(500).send('Tracking error');
@@ -304,12 +313,14 @@ app.get('/track/:id', async (req, res) => {
 app.get('/api/get-scan-count/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const { resource: project } = await container.item(id, id).read();
+    const { resource: project } = await qrContainer.item(id, id).read(); // 🔁 updated
     res.status(200).json({ scanCount: project.scanCount || 0 });
   } catch (err) {
     res.status(500).json({ message: 'Scan count failed' });
   }
 });
+
+// ========== CUSTOM COSMOS DB ROUTES ==========
 
 // ✅ Custom Cosmos DB Viewer
 app.post("/api/custom-data", async (req, res) => {
