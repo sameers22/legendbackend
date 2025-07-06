@@ -217,6 +217,7 @@ app.put('/api/update-user', async (req, res) => {
 });
 
 // ========== QR PROJECT ROUTES ==========
+
 app.post('/api/save-project', async (req, res) => {
   const { name, text, time, qrImage, qrColor, bgColor } = req.body;
 
@@ -368,6 +369,37 @@ app.put('/api/update-color/:id', async (req, res) => {
   } catch (err) {
     console.error('❌ Color Update Error:', err.message);
     res.status(500).json({ message: 'Color update failed.', error: err.message });
+  }
+});
+
+// 🔍 Get Project by Name and Time
+app.get('/api/get-project-by-name-time', async (req, res) => {
+  const { name, time } = req.query;
+
+  if (!name || !time) {
+    return res.status(400).json({ message: 'Missing name or time' });
+  }
+
+  try {
+    const query = {
+      query: 'SELECT * FROM c WHERE c.type = @type AND c.name = @name AND c.time = @time',
+      parameters: [
+        { name: '@type', value: 'qr_project' },
+        { name: '@name', value: name },
+        { name: '@time', value: time },
+      ],
+    };
+
+    const { resources } = await qrContainer.items.query(query).fetchAll();
+
+    if (resources.length === 0) {
+      return res.status(404).json({ message: 'Project not found' });
+    }
+
+    res.status(200).json({ project: resources[0] });
+  } catch (err) {
+    console.error('❌ Get project by name & time failed:', err.message);
+    res.status(500).json({ message: 'Fetch failed', error: err.message });
   }
 });
 
