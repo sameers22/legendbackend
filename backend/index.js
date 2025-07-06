@@ -217,9 +217,8 @@ app.put('/api/update-user', async (req, res) => {
 });
 
 // ========== QR PROJECT ROUTES ==========
-// ✅ Save Project (with qrImage)
 app.post('/api/save-project', async (req, res) => {
-  const { name, text, time, qrImage } = req.body;
+  const { name, text, time, qrImage, qrColor, bgColor } = req.body;
 
   if (!name || !text || !time) {
     return res.status(400).json({ message: 'Missing required fields' });
@@ -232,7 +231,9 @@ app.post('/api/save-project', async (req, res) => {
       text,
       time,
       scanCount: 0,
-      qrImage, // ✅ now included
+      qrImage,
+      qrColor: qrColor || '#000000',      // ✅ added
+      bgColor: bgColor || '#ffffff',      // ✅ added
       type: 'qr_project',
     };
 
@@ -342,6 +343,34 @@ app.post("/api/custom-data", async (req, res) => {
     res.status(500).json({ error: "Custom DB fetch failed." });
   }
 });
+
+// ✅ Update Only QR & Background Colors
+app.put('/api/update-color/:id', async (req, res) => {
+  const { id } = req.params;
+  const { qrColor, bgColor } = req.body;
+
+  if (!qrColor && !bgColor) {
+    return res.status(400).json({ message: 'No color values provided' });
+  }
+
+  try {
+    const { resource: existing } = await qrContainer.item(id, id).read();
+
+    const updated = {
+      ...existing,
+      qrColor: qrColor ?? existing.qrColor,
+      bgColor: bgColor ?? existing.bgColor,
+      time: new Date().toISOString(), // Optional: update timestamp
+    };
+
+    const { resource } = await qrContainer.items.upsert(updated);
+    res.status(200).json({ message: 'Colors updated', project: resource });
+  } catch (err) {
+    console.error('❌ Color Update Error:', err.message);
+    res.status(500).json({ message: 'Color update failed.', error: err.message });
+  }
+});
+
 
 // ✅ Start server
 const PORT = process.env.PORT || 3001;
