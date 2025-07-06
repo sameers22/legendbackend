@@ -328,6 +328,35 @@ app.get('/api/get-scan-count/:id', async (req, res) => {
   }
 });
 
+// ✅ Update QR Colors and (optionally) the QR Image
+app.put('/api/update-color/:id', async (req, res) => {
+  const { id } = req.params;
+  const { qrColor, bgColor, qrImage } = req.body;
+
+  if (!qrColor && !bgColor && !qrImage) {
+    return res.status(400).json({ message: 'No update values provided' });
+  }
+
+  try {
+    const { resource: existing } = await qrContainer.item(id, id).read();
+
+    const updated = {
+      ...existing,
+      qrColor: qrColor ?? existing.qrColor,
+      bgColor: bgColor ?? existing.bgColor,
+      qrImage: qrImage ?? existing.qrImage, // ✅ Include updated image
+      time: new Date().toISOString(),
+    };
+
+    const { resource } = await qrContainer.items.upsert(updated);
+    res.status(200).json({ message: 'Colors and image updated', project: resource });
+  } catch (err) {
+    console.error('❌ Color/Image Update Error:', err.message);
+    res.status(500).json({ message: 'Color/image update failed.', error: err.message });
+  }
+});
+
+
 // ========== CUSTOM COSMOS DB ROUTES ==========
 
 // ✅ Custom Cosmos DB Viewer
@@ -342,64 +371,6 @@ app.post("/api/custom-data", async (req, res) => {
     res.json({ data: resources });
   } catch (err) {
     res.status(500).json({ error: "Custom DB fetch failed." });
-  }
-});
-
-// ✅ Update Only QR & Background Colors
-app.put('/api/update-color/:id', async (req, res) => {
-  const { id } = req.params;
-  const { qrColor, bgColor } = req.body;
-
-  if (!qrColor && !bgColor) {
-    return res.status(400).json({ message: 'No color values provided' });
-  }
-
-  try {
-    const { resource: existing } = await qrContainer.item(id, id).read();
-
-    const updated = {
-      ...existing,
-      qrColor: qrColor ?? existing.qrColor,
-      bgColor: bgColor ?? existing.bgColor,
-      time: new Date().toISOString(), // Optional: update timestamp
-    };
-
-    const { resource } = await qrContainer.items.upsert(updated);
-    res.status(200).json({ message: 'Colors updated', project: resource });
-  } catch (err) {
-    console.error('❌ Color Update Error:', err.message);
-    res.status(500).json({ message: 'Color update failed.', error: err.message });
-  }
-});
-
-// 🔍 Get Project by Name and Time
-app.get('/api/get-project-by-name-time', async (req, res) => {
-  const { name, time } = req.query;
-
-  if (!name || !time) {
-    return res.status(400).json({ message: 'Missing name or time' });
-  }
-
-  try {
-    const query = {
-      query: 'SELECT * FROM c WHERE c.type = @type AND c.name = @name AND c.time = @time',
-      parameters: [
-        { name: '@type', value: 'qr_project' },
-        { name: '@name', value: name },
-        { name: '@time', value: time },
-      ],
-    };
-
-    const { resources } = await qrContainer.items.query(query).fetchAll();
-
-    if (resources.length === 0) {
-      return res.status(404).json({ message: 'Project not found' });
-    }
-
-    res.status(200).json({ project: resources[0] });
-  } catch (err) {
-    console.error('❌ Get project by name & time failed:', err.message);
-    res.status(500).json({ message: 'Fetch failed', error: err.message });
   }
 });
 
