@@ -356,6 +356,46 @@ app.put('/api/update-color/:id', async (req, res) => {
   }
 });
 
+app.get('/track/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userAgent = req.headers['user-agent'] || 'unknown';
+    const ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+
+    const { resource: project } = await qrContainer.item(id, id).read();
+    if (!project || !project.text) return res.status(404).send('QR not found');
+    project.scanCount = (project.scanCount || 0) + 1;
+
+    // New: Track scan events
+    project.scanEvents = project.scanEvents || [];
+    project.scanEvents.push({
+      timestamp: new Date().toISOString(),
+      userAgent,
+      ip,
+    });
+
+    await qrContainer.items.upsert(project);
+
+    res.redirect(project.text.startsWith('http') ? project.text : `https://${project.text}`);
+  } catch (err) {
+    res.status(500).send('Tracking error');
+  }
+});
+
+// ✅ Get Scan Analytics (history)
+app.get('/api/get-scan-analytics/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { resource: project } = await qrContainer.item(id, id).read();
+    if (!project) return res.status(404).json({ message: 'Project not found' });
+    res.status(200).json({
+      scanCount: project.scanCount || 0,
+      scanEvents: project.scanEvents || [],
+    });
+  } catch (err) {
+    res.status(500).json({ message: 'Scan analytics failed', error: err.message });
+  }
+});
 
 // ========== CUSTOM COSMOS DB ROUTES ==========
 
