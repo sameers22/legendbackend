@@ -356,24 +356,40 @@ app.put('/api/update-color/:id', async (req, res) => {
   }
 });
 
+const fetch = require('node-fetch'); // At top of your backend if not already imported
+
 app.get('/track/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const userAgent = req.headers['user-agent'] || 'unknown';
     const ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
 
+    // New: Get city/country from IP
+    let location = null;
+    try {
+      const locRes = await fetch(`http://ip-api.com/json/${ip}`);
+      const locJson = await locRes.json();
+      location = {
+        city: locJson.city,
+        region: locJson.regionName,
+        country: locJson.country,
+        lat: locJson.lat,
+        lon: locJson.lon,
+      };
+    } catch (locErr) {
+      // IP lookup failed; skip location
+    }
+
     const { resource: project } = await qrContainer.item(id, id).read();
     if (!project || !project.text) return res.status(404).send('QR not found');
     project.scanCount = (project.scanCount || 0) + 1;
-
-    // New: Track scan events
     project.scanEvents = project.scanEvents || [];
     project.scanEvents.push({
       timestamp: new Date().toISOString(),
       userAgent,
       ip,
+      location, // <<------ ADD LOCATION!
     });
-
     await qrContainer.items.upsert(project);
 
     res.redirect(project.text.startsWith('http') ? project.text : `https://${project.text}`);
@@ -381,6 +397,7 @@ app.get('/track/:id', async (req, res) => {
     res.status(500).send('Tracking error');
   }
 });
+
 
 // ✅ Get Scan Analytics (history)
 app.get('/api/get-scan-analytics/:id', async (req, res) => {
