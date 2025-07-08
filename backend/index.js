@@ -295,9 +295,8 @@ app.put('/api/update-user', async (req, res) => {
 
 // ========== QR PROJECT ROUTES ==========
 
-app.post('/api/save-project', async (req, res) => {
+app.post('/api/save-project', authMiddleware, async (req, res) => {
   const { name, text, time, qrImage, qrColor, bgColor } = req.body;
-
   if (!name || !text || !time) {
     return res.status(400).json({ message: 'Missing required fields' });
   }
@@ -310,75 +309,87 @@ app.post('/api/save-project', async (req, res) => {
       time,
       scanCount: 0,
       qrImage,
-      qrColor: qrColor || '#000000',      // ✅ added
-      bgColor: bgColor || '#ffffff',      // ✅ added
+      qrColor: qrColor || '#000000',
+      bgColor: bgColor || '#ffffff',
       type: 'qr_project',
+      userId: req.user.userId, // <-- Save the userId!
     };
 
     const { resource } = await qrContainer.items.create(newItem);
     res.status(201).json({ message: 'Project saved', project: resource });
   } catch (err) {
-    console.error('❌ Save Project Error:', err.message);
     res.status(500).json({ message: 'Save failed.', error: err.message });
   }
 });
 
 
-// ✅ Get All Projects
-app.get('/api/get-projects', async (req, res) => {
+
+app.get('/api/get-projects', authMiddleware, async (req, res) => {
   try {
     const query = {
-      query: 'SELECT * FROM c WHERE c.type = @type ORDER BY c._ts DESC',
-      parameters: [{ name: '@type', value: 'qr_project' }]
+      query: 'SELECT * FROM c WHERE c.type = @type AND c.userId = @userId ORDER BY c._ts DESC',
+      parameters: [
+        { name: '@type', value: 'qr_project' },
+        { name: '@userId', value: req.user.userId }
+      ]
     };
-    const { resources } = await qrContainer.items.query(query).fetchAll(); // 🔁 updated
+    const { resources } = await qrContainer.items.query(query).fetchAll();
     res.status(200).json({ projects: resources });
   } catch (err) {
     res.status(500).json({ message: 'Fetch failed.', error: err.message });
   }
 });
 
-// ✅ Get Single Project
-app.get('/api/get-project/:id', async (req, res) => {
+
+app.get('/api/get-project/:id', authMiddleware, async (req, res) => {
   try {
     const { id } = req.params;
-    const { resource } = await qrContainer.item(id, id).read(); // 🔁 updated
+    const { resource } = await qrContainer.item(id, id).read();
+    if (!resource) return res.status(404).json({ message: 'Project not found' });
+    if (resource.userId !== req.user.userId)
+      return res.status(403).json({ message: 'Forbidden' });
     res.status(200).json({ project: resource });
   } catch (err) {
     res.status(404).json({ message: 'Project not found' });
   }
 });
 
-// ✅ Update Project
-app.put('/api/update-project/:id', async (req, res) => {
+app.put('/api/update-project/:id', authMiddleware, async (req, res) => {
   const { id } = req.params;
   const { name, text } = req.body;
-
   try {
-    const { resource: existing } = await qrContainer.item(id, id).read(); // 🔁 updated
+    const { resource: existing } = await qrContainer.item(id, id).read();
+    if (!existing) return res.status(404).json({ message: 'Project not found' });
+    if (existing.userId !== req.user.userId)
+      return res.status(403).json({ message: 'Forbidden' });
+
     const updated = {
       ...existing,
       name,
       text,
       time: new Date().toISOString(),
     };
-    const { resource } = await qrContainer.items.upsert(updated); // 🔁 updated
+    const { resource } = await qrContainer.items.upsert(updated);
     res.status(200).json({ message: 'Updated', project: resource });
   } catch (err) {
     res.status(500).json({ message: 'Update failed.', error: err.message });
   }
 });
 
-// ✅ Delete Project
-app.delete('/api/delete-project/:id', async (req, res) => {
+app.delete('/api/delete-project/:id', authMiddleware, async (req, res) => {
   try {
     const { id } = req.params;
-    await qrContainer.item(id, id).delete(); // 🔁 updated
+    const { resource: existing } = await qrContainer.item(id, id).read();
+    if (!existing) return res.status(404).json({ message: 'Project not found' });
+    if (existing.userId !== req.user.userId)
+      return res.status(403).json({ message: 'Forbidden' });
+    await qrContainer.item(id, id).delete();
     res.status(200).json({ message: 'Deleted' });
   } catch (err) {
     res.status(500).json({ message: 'Delete failed.' });
   }
 });
+
 
 // ✅ Track Scans & Redirect
 app.get('/track/:id', async (req, res) => {
