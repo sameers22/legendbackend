@@ -8,6 +8,8 @@ const { CosmosClient } = require('@azure/cosmos');
 const sendVerificationCode = require('./sendVerificationCode');
 const { createCustomContainer } = require('./custom-cosmos');
 
+const jwt = require('jsonwebtoken');
+
 const app = express();
 app.use(cors());
 app.use(bodyParser.json());
@@ -30,6 +32,81 @@ const qrClient = new CosmosClient({
 const qrDb = qrClient.database(process.env.COSMOS_DB_DATABASE2);
 const qrContainer = qrDb.container(process.env.COSMOS_DB_CONTAINER2);
 
+// JWT secret
+const JWT_SECRET = process.env.JWT_SECRET || 'supersecretkey';
+
+// JWT auth middleware
+function authMiddleware(req, res, next) {
+  const auth = req.headers.authorization;
+  if (!auth) return res.status(401).json({ message: 'Missing Authorization' });
+  const token = auth.split(' ')[1];
+  try {
+    const payload = jwt.verify(token, JWT_SECRET);
+    req.user = payload;
+    next();
+  } catch (err) {
+    return res.status(401).json({ message: 'Invalid token' });
+  }
+}
+
+// Register (Simple, using qrContainer for both user and project for demo)
+app.post('/api/register2', async (req, res) => {
+  const { email, password } = req.body;
+  if (!email || !password)
+    return res.status(400).json({ message: 'Missing email or password' });
+
+  const query = {
+    query: 'SELECT * FROM c WHERE c.type = @type AND c.email = @email',
+    parameters: [
+      { name: '@type', value: 'user' },
+      { name: '@email', value: email },
+    ],
+  };
+  const { resources: users } = await qrContainer.items.query(query).fetchAll();
+  if (users.length > 0)
+    return res.status(409).json({ message: 'User already exists' });
+
+  const hashed = await bcrypt.hash(password, 10);
+
+  const user = {
+    id: `user-${Date.now()}-${Math.random()}`,
+    type: 'user',
+    email,
+    password: hashed,
+    created: new Date().toISOString(),
+  };
+  await qrContainer.items.create(user);
+  res.status(201).json({ message: 'User registered' });
+});
+
+// Login (Simple, using qrContainer)
+app.post('/api/login2', async (req, res) => {
+  const { email, password } = req.body;
+  if (!email || !password)
+    return res.status(400).json({ message: 'Missing email or password' });
+
+  const query = {
+    query: 'SELECT * FROM c WHERE c.type = @type AND c.email = @email',
+    parameters: [
+      { name: '@type', value: 'user' },
+      { name: '@email', value: email },
+    ],
+  };
+  const { resources: users } = await qrContainer.items.query(query).fetchAll();
+  if (users.length === 0)
+    return res.status(401).json({ message: 'Invalid credentials' });
+
+  const user = users[0];
+  const match = await bcrypt.compare(password, user.password);
+  if (!match) return res.status(401).json({ message: 'Invalid credentials' });
+
+  const token = jwt.sign(
+    { userId: user.id, email: user.email },
+    JWT_SECRET,
+    { expiresIn: '7d' }
+  );
+  res.json({ token });
+});
 
 // ✅ Health Check
 app.get('/api/health', (req, res) => {
