@@ -511,40 +511,80 @@ app.put('/api/update-color/:id', async (req, res) => {
 app.get('/track/:id', async (req, res) => {
   try {
     const { id } = req.params;
+    const { resource: project } = await qrContainer.item(id, id).read();
+    if (!project || !project.text) return res.status(404).send('QR not found');
+
+    // Dynamic HTML with ID and redirect URL
+    const html = `
+<!DOCTYPE html>
+<html>
+<head>
+  <title>QR Scan</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0">
+  <style>
+    body { font-family: sans-serif; background: #f9fafe; color: #222; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh;}
+    .card { background: #fff; border-radius: 12px; box-shadow: 0 2px 8px #0002; padding: 28px 20px; max-width: 380px; text-align: center; }
+    button { margin-top: 18px; padding: 10px 24px; background: #2196f3; color: #fff; border: none; border-radius: 7px; font-size: 16px; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2>Analytics Request</h2>
+    <p>Help us improve analytics!<br/>Allow location access for better insights.<br/>No personal info stored.</p>
+    <button id="allow">Allow Location</button>
+    <button id="skip" style="background:#aaa;margin-left:12px;">Skip</button>
+    <p id="status" style="margin-top:16px;color:#2196f3"></p>
+  </div>
+  <script>
+    const projectId = "${id}";
+    const redirectTo = "${project.text.startsWith('http') ? project.text : `https://${project.text}`}";
+    function recordScan(location) {
+      fetch('/api/record-scan', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ projectId, location })
+      }).catch(()=>{});
+    }
+    document.getElementById('allow').onclick = function() {
+      document.getElementById('status').innerText = "Requesting location...";
+      navigator.geolocation.getCurrentPosition(function(pos) {
+        const coords = { lat: pos.coords.latitude, lon: pos.coords.longitude };
+        recordScan(coords);
+        window.location.replace(redirectTo);
+      }, function() {
+        document.getElementById('status').innerText = "Location denied. Redirecting...";
+        setTimeout(()=>window.location.replace(redirectTo), 1200);
+      }, {timeout: 7000});
+    };
+    document.getElementById('skip').onclick = function() {
+      recordScan(null); // No GPS
+      window.location.replace(redirectTo);
+    };
+  </script>
+</body>
+</html>
+    `;
+    res.set('Content-Type', 'text/html');
+    res.send(html);
+  } catch (err) {
+    res.status(500).send('Tracking error');
+  }
+});
+
+app.post('/api/record-scan', async (req, res) => {
+  try {
+    const { projectId, location } = req.body;
     const userAgent = req.headers['user-agent'] || 'unknown';
     let ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
     if (Array.isArray(ip)) ip = ip[0];
     if (typeof ip === 'string' && ip.includes(',')) ip = ip.split(',')[0].trim();
 
-    // Parse user agent
     const parser = new UAParser();
     const uaResult = parser.setUA(userAgent).getResult();
 
-    // Get city/country from IP
-    let location = null;
-    if (ip && !isPrivateIp(ip)) {
-      try {
-        const locRes = await fetch(`https://ip-api.com/json/${ip}`);
-        const locJson = await locRes.json();
-        if (locJson && locJson.status === 'success') {
-          location = {
-            city: locJson.city,
-            region: locJson.regionName,
-            country: locJson.country,
-            lat: locJson.lat,
-            lon: locJson.lon,
-          };
-        }
-        // For debugging:
-        console.log('[Track] IP:', ip, '| Location:', location);
-      } catch (locErr) {
-        // skip location
-        console.error('GeoIP lookup failed:', locErr);
-      }
-    }
+    const { resource: project } = await qrContainer.item(projectId, projectId).read();
+    if (!project) return res.status(404).json({ message: 'Project not found' });
 
-    const { resource: project } = await qrContainer.item(id, id).read();
-    if (!project || !project.text) return res.status(404).send('QR not found');
     project.scanCount = (project.scanCount || 0) + 1;
     project.scanEvents = project.scanEvents || [];
     project.scanEvents.push({
@@ -556,15 +596,14 @@ app.get('/track/:id', async (req, res) => {
       ip,
       location,
     });
-    // Only keep last 100 events
     if (project.scanEvents.length > 100) {
       project.scanEvents = project.scanEvents.slice(-100);
     }
     await qrContainer.items.upsert(project);
 
-    res.redirect(project.text.startsWith('http') ? project.text : `https://${project.text}`);
+    res.status(200).json({ ok: true });
   } catch (err) {
-    res.status(500).send('Tracking error');
+    res.status(500).json({ message: 'Scan record failed', error: err.message });
   }
 });
 
