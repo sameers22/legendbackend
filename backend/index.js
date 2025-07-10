@@ -41,6 +41,16 @@ const JWT_SECRET = process.env.JWT_SECRET || 'supersecretkey';
 
 const fetch = require('node-fetch'); // At top of your backend if not already imported
 
+const UAParser = require('ua-parser-js');
+function isPrivateIp(ip) {
+  return (
+    ip.startsWith('192.168.') ||
+    ip.startsWith('10.') ||
+    ip.startsWith('127.') ||
+    ip.startsWith('172.')
+  );
+}
+
 // JWT auth middleware
 function authMiddleware(req, res, next) {
   const auth = req.headers.authorization;
@@ -519,20 +529,26 @@ app.get('/track/:id', async (req, res) => {
     const userAgent = req.headers['user-agent'] || 'unknown';
     const ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
 
-    // New: Get city/country from IP
+    // Parse user agent
+    const parser = new UAParser();
+    const uaResult = parser.setUA(userAgent).getResult();
+
+    // Get city/country from IP
     let location = null;
-    try {
-      const locRes = await fetch(`http://ip-api.com/json/${ip}`);
-      const locJson = await locRes.json();
-      location = {
-        city: locJson.city,
-        region: locJson.regionName,
-        country: locJson.country,
-        lat: locJson.lat,
-        lon: locJson.lon,
-      };
-    } catch (locErr) {
-      // IP lookup failed; skip location
+    if (ip && !isPrivateIp(ip)) {
+      try {
+        const locRes = await fetch(`http://ip-api.com/json/${ip}`);
+        const locJson = await locRes.json();
+        location = {
+          city: locJson.city,
+          region: locJson.regionName,
+          country: locJson.country,
+          lat: locJson.lat,
+          lon: locJson.lon,
+        };
+      } catch (locErr) {
+        // skip location
+      }
     }
 
     const { resource: project } = await qrContainer.item(id, id).read();
@@ -542,9 +558,16 @@ app.get('/track/:id', async (req, res) => {
     project.scanEvents.push({
       timestamp: new Date().toISOString(),
       userAgent,
+      browser: uaResult.browser.name,
+      os: uaResult.os.name,
+      device: uaResult.device.type,
       ip,
-      location, // <<------ ADD LOCATION!
+      location,
     });
+    // Only keep last 100 events
+    if (project.scanEvents.length > 100) {
+      project.scanEvents = project.scanEvents.slice(-100);
+    }
     await qrContainer.items.upsert(project);
 
     res.redirect(project.text.startsWith('http') ? project.text : `https://${project.text}`);
@@ -552,7 +575,6 @@ app.get('/track/:id', async (req, res) => {
     res.status(500).send('Tracking error');
   }
 });
-
 
 // ✅ Get Scan Analytics (history)
 app.get('/api/get-scan-analytics/:id', async (req, res) => {
