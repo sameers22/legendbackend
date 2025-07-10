@@ -524,17 +524,22 @@ app.get('/track/:id', async (req, res) => {
     let location = null;
     if (ip && !isPrivateIp(ip)) {
       try {
-        const locRes = await fetch(`http://ip-api.com/json/${ip}`);
+        const locRes = await fetch(`https://ip-api.com/json/${ip}`);
         const locJson = await locRes.json();
-        location = {
-          city: locJson.city,
-          region: locJson.regionName,
-          country: locJson.country,
-          lat: locJson.lat,
-          lon: locJson.lon,
-        };
+        if (locJson && locJson.status === 'success') {
+          location = {
+            city: locJson.city,
+            region: locJson.regionName,
+            country: locJson.country,
+            lat: locJson.lat,
+            lon: locJson.lon,
+          };
+        }
+        // For debugging:
+        console.log('[Track] IP:', ip, '| Location:', location);
       } catch (locErr) {
         // skip location
+        console.error('GeoIP lookup failed:', locErr);
       }
     }
 
@@ -562,6 +567,7 @@ app.get('/track/:id', async (req, res) => {
     res.status(500).send('Tracking error');
   }
 });
+
 
 
 // ✅ Get Scan Analytics (history)
