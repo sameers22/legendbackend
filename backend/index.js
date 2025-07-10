@@ -39,6 +39,8 @@ const qrContainer = qrDb.container(process.env.COSMOS_DB_CONTAINER2);
 // JWT secret
 const JWT_SECRET = process.env.JWT_SECRET || 'supersecretkey';
 
+const fetch = require('node-fetch'); // At top of your backend if not already imported
+
 // JWT auth middleware
 function authMiddleware(req, res, next) {
   const auth = req.headers.authorization;
@@ -510,8 +512,6 @@ app.put('/api/update-color/:id', async (req, res) => {
     res.status(500).json({ message: 'Color/image update failed.', error: err.message });
   }
 });
-
-const fetch = require('node-fetch'); // At top of your backend if not already imported
 
 app.get('/track/:id', async (req, res) => {
   try {
