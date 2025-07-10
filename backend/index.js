@@ -512,7 +512,9 @@ app.get('/track/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const userAgent = req.headers['user-agent'] || 'unknown';
-    const ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+    let ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+    if (Array.isArray(ip)) ip = ip[0];
+    if (typeof ip === 'string' && ip.includes(',')) ip = ip.split(',')[0].trim();
 
     // Parse user agent
     const parser = new UAParser();
@@ -560,6 +562,7 @@ app.get('/track/:id', async (req, res) => {
     res.status(500).send('Tracking error');
   }
 });
+
 
 // ✅ Get Scan Analytics (history)
 app.get('/api/get-scan-analytics/:id', async (req, res) => {
