@@ -469,21 +469,6 @@ app.delete('/api/delete-project/:id', authMiddleware, async (req, res) => {
   }
 });
 
-
-// ✅ Track Scans & Redirect
-app.get('/track/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { resource: project } = await qrContainer.item(id, id).read(); // 🔁 updated
-    if (!project || !project.text) return res.status(404).send('QR not found');
-    project.scanCount = (project.scanCount || 0) + 1;
-    await qrContainer.items.upsert(project); // 🔁 updated
-    res.redirect(project.text.startsWith('http') ? project.text : `https://${project.text}`);
-  } catch (err) {
-    res.status(500).send('Tracking error');
-  }
-});
-
 // ✅ Get Scan Count
 app.get('/api/get-scan-count/:id', async (req, res) => {
   try {
